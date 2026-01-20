@@ -8,12 +8,13 @@ import { logAuth } from '../utils/logger.js';
 
 export async function register(req, res, next) {
     try {
-        const { email, password } = req.body;
-        const result = await authService.register(email, password);
+        const { email, username, password } = req.body;
+        const result = await authService.register(email, username, password);
 
         logAuth('register_success', {
             message: 'New user registered',
             email,
+            username,
             userId: result.user.id,
             ip: req.logContext?.ip,
             country: req.logContext?.geo?.country,
@@ -25,6 +26,7 @@ export async function register(req, res, next) {
         logAuth('register_failed', {
             message: 'Registration failed',
             email: req.body?.email,
+            username: req.body?.username,
             error: error.message,
             ip: req.logContext?.ip,
             country: req.logContext?.geo?.country,
@@ -35,13 +37,14 @@ export async function register(req, res, next) {
 
 export async function login(req, res, next) {
     try {
-        const { email, password } = req.body;
+        const { email, password } = req.body; // email can be email or username
         const result = await authService.login(email, password);
 
         logAuth('login_success', {
             message: 'User logged in',
-            email,
+            identifier: email,
             userId: result.user.id,
+            username: result.user.username,
             role: result.user.role,
             ip: req.logContext?.ip,
             country: req.logContext?.geo?.country,
@@ -55,7 +58,7 @@ export async function login(req, res, next) {
     } catch (error) {
         logAuth('login_failed', {
             message: 'Login attempt failed',
-            email: req.body?.email,
+            identifier: req.body?.email,
             error: error.message,
             ip: req.logContext?.ip,
             country: req.logContext?.geo?.country,
@@ -130,6 +133,54 @@ export async function changePassword(req, res, next) {
     } catch (error) {
         logAuth('password_change_failed', {
             message: 'Password change failed',
+            userId: req.user._id?.toString(),
+            error: error.message,
+            ip: req.logContext?.ip,
+        });
+        next(error);
+    }
+}
+
+export async function changeUsername(req, res, next) {
+    try {
+        const { newUsername, password } = req.body;
+        const result = await authService.changeUsername(req.user._id, newUsername, password);
+
+        logAuth('username_changed', {
+            message: 'User changed username',
+            userId: req.user._id.toString(),
+            newUsername: result.username,
+            ip: req.logContext?.ip,
+        });
+
+        res.json(result);
+    } catch (error) {
+        logAuth('username_change_failed', {
+            message: 'Username change failed',
+            userId: req.user._id?.toString(),
+            error: error.message,
+            ip: req.logContext?.ip,
+        });
+        next(error);
+    }
+}
+
+export async function changeEmail(req, res, next) {
+    try {
+        const { newEmail, password } = req.body;
+        const result = await authService.changeEmail(req.user._id, newEmail, password);
+
+        logAuth('email_changed', {
+            message: 'User changed email',
+            userId: req.user._id.toString(),
+            newEmail: result.email,
+            ip: req.logContext?.ip,
+        });
+
+        res.json(result);
+    } catch (error) {
+        logAuth('email_change_failed', {
+            message: 'Email change failed',
             userId: req.user._id?.toString(),
             error: error.message,
             ip: req.logContext?.ip,

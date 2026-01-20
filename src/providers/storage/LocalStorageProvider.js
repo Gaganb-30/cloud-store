@@ -241,21 +241,23 @@ export class LocalStorageProvider extends StorageProvider {
     }
 
     /**
-     * Write a chunk for chunked uploads
+     * Write a chunk for chunked uploads (optimized for speed)
      */
     async writeChunk(sessionId, chunkIndex, data) {
         const chunkPath = this._getTempPath(sessionId, chunkIndex);
+        const sessionDir = dirname(chunkPath);
 
         try {
-            await fs.mkdir(dirname(chunkPath), { recursive: true });
-            await fs.writeFile(chunkPath, data);
+            // Create session dir only once (will succeed silently if exists)
+            await fs.mkdir(sessionDir, { recursive: true }).catch(() => { });
 
-            const stats = await fs.stat(chunkPath);
+            // Direct write without stat for speed
+            await fs.writeFile(chunkPath, data);
 
             return {
                 sessionId,
                 chunkIndex,
-                size: stats.size,
+                size: data.length,
                 path: chunkPath,
             };
         } catch (error) {

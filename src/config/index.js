@@ -95,7 +95,7 @@ const config = {
 
   // Upload
   upload: {
-    chunkSize: envInt('UPLOAD_CHUNK_SIZE', 10485760), // 10MB
+    chunkSize: envInt('UPLOAD_CHUNK_SIZE', 15728640), // 15MB
     maxFileSizeFree: envInt('UPLOAD_MAX_FILE_SIZE_FREE', 10737418240), // 10GB
     maxFileSizePremium: envInt('UPLOAD_MAX_FILE_SIZE_PREMIUM', -1), // Unlimited
     sessionTtl: envInt('UPLOAD_SESSION_TTL', 86400), // 24 hours

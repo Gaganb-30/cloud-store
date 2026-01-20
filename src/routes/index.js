@@ -7,6 +7,7 @@ import uploadRoutes from './upload.js';
 import downloadRoutes from './download.js';
 import folderRoutes from './folders.js';
 import adminRoutes from './admin.js';
+import analyticsRoutes from './analytics.js';
 
 const router = Router();
 
@@ -16,5 +17,6 @@ router.use('/download', downloadRoutes);
 router.use('/files', downloadRoutes); // Alias
 router.use('/folders', folderRoutes);
 router.use('/admin', adminRoutes);
+router.use('/analytics', analyticsRoutes);
 
 export default router;

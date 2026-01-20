@@ -20,7 +20,7 @@ router.post('/init', uploadController.initUpload);
 // Upload chunk - use raw body parser for binary data
 router.put(
     '/chunk/:sessionId/:chunkIndex',
-    express.raw({ type: '*/*', limit: '15mb' }),
+    express.raw({ type: '*/*', limit: '30mb' }),
     trackChunkFailure,
     uploadController.uploadChunk
 );

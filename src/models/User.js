@@ -15,6 +15,15 @@ export const UserRole = {
     ADMIN: 'admin',
 };
 
+/**
+ * User status enum
+ */
+export const UserStatus = {
+    ACTIVE: 'active',
+    RESTRICTED: 'restricted',  // Cannot upload, but files remain accessible
+    BLOCKED: 'blocked',        // Account deactivated, all files deleted
+};
+
 const userSchema = new mongoose.Schema({
     email: {
         type: String,
@@ -23,6 +32,23 @@ const userSchema = new mongoose.Schema({
         lowercase: true,
         trim: true,
         index: true,
+    },
+    username: {
+        type: String,
+        required: true,
+        unique: true,
+        lowercase: true,
+        trim: true,
+        minlength: 3,
+        maxlength: 30,
+        index: true,
+        validate: {
+            validator: function (v) {
+                // Alphanumeric, underscores, and hyphens only
+                return /^[a-z0-9_-]+$/.test(v);
+            },
+            message: 'Username can only contain letters, numbers, underscores, and hyphens'
+        }
     },
     password: {
         type: String,
@@ -38,6 +64,12 @@ const userSchema = new mongoose.Schema({
     isActive: {
         type: Boolean,
         default: true,
+    },
+    status: {
+        type: String,
+        enum: Object.values(UserStatus),
+        default: UserStatus.ACTIVE,
+        index: true,
     },
     lastLogin: {
         type: Date,
@@ -198,6 +230,26 @@ userSchema.methods.isAdmin = function () {
  */
 userSchema.statics.findByEmail = function (email) {
     return this.findOne({ email: email.toLowerCase() });
+};
+
+/**
+ * Static: Find by username
+ */
+userSchema.statics.findByUsername = function (username) {
+    return this.findOne({ username: username.toLowerCase() });
+};
+
+/**
+ * Static: Find by email or username (for login)
+ */
+userSchema.statics.findByEmailOrUsername = function (identifier) {
+    const lowerIdentifier = identifier.toLowerCase();
+    return this.findOne({
+        $or: [
+            { email: lowerIdentifier },
+            { username: lowerIdentifier }
+        ]
+    });
 };
 
 const User = mongoose.model('User', userSchema);

@@ -47,27 +47,41 @@ class AuthService {
     /**
      * Register a new user
      */
-    async register(email, password) {
+    async register(email, username, password) {
         // Validate input
-        if (!email || !password) {
-            throw new ValidationError('Email and password are required');
+        if (!email || !username || !password) {
+            throw new ValidationError('Email, username, and password are required');
         }
 
         if (password.length < 8) {
             throw new ValidationError('Password must be at least 8 characters');
         }
 
-        // Check for existing user
-        const existing = await User.findByEmail(email);
-        if (existing) {
+        if (username.length < 3 || username.length > 30) {
+            throw new ValidationError('Username must be 3-30 characters');
+        }
+
+        if (!/^[a-zA-Z0-9_-]+$/.test(username)) {
+            throw new ValidationError('Username can only contain letters, numbers, underscores, and hyphens');
+        }
+
+        // Check for existing email
+        const existingEmail = await User.findByEmail(email);
+        if (existingEmail) {
             throw new ConflictError('Email already registered');
         }
 
+        // Check for existing username
+        const existingUsername = await User.findByUsername(username);
+        if (existingUsername) {
+            throw new ConflictError('Username already taken');
+        }
+
         // Create user
-        const user = new User({ email, password });
+        const user = new User({ email, username, password });
         await user.save();
 
-        logger.info('User registered', { userId: user._id, email: user.email });
+        logger.info('User registered', { userId: user._id, email: user.email, username: user.username });
 
         // Generate tokens
         const tokens = await this.generateTokens(user);
@@ -79,18 +93,18 @@ class AuthService {
     }
 
     /**
-     * Login user
+     * Login user (via email or username)
      */
-    async login(email, password) {
+    async login(identifier, password) {
         // Validate input
-        if (!email || !password) {
-            throw new ValidationError('Email and password are required');
+        if (!identifier || !password) {
+            throw new ValidationError('Email/username and password are required');
         }
 
-        // Find user
-        const user = await User.findByEmail(email);
+        // Find user by email or username
+        const user = await User.findByEmailOrUsername(identifier);
         if (!user) {
-            throw new AuthenticationError('Invalid email or password');
+            throw new AuthenticationError('Invalid credentials');
         }
 
         // Check lockout
@@ -102,7 +116,7 @@ class AuthService {
         const isValid = await user.comparePassword(password);
         if (!isValid) {
             await user.incrementFailedLogins();
-            throw new AuthenticationError('Invalid email or password');
+            throw new AuthenticationError('Invalid credentials');
         }
 
         // Reset failed attempts and update last login
@@ -113,7 +127,7 @@ class AuthService {
         // Generate tokens
         const tokens = await this.generateTokens(user);
 
-        logger.info('User logged in', { userId: user._id, email: user.email });
+        logger.info('User logged in', { userId: user._id, email: user.email, username: user.username });
 
         return {
             user: user.toJSON(),
@@ -354,6 +368,78 @@ class AuthService {
         logger.info('Password changed', { userId });
 
         return { message: 'Password changed successfully' };
+    }
+
+    /**
+     * Change username (requires password verification)
+     */
+    async changeUsername(userId, newUsername, password) {
+        if (!newUsername || newUsername.length < 3 || newUsername.length > 30) {
+            throw new ValidationError('Username must be 3-30 characters');
+        }
+
+        if (!/^[a-zA-Z0-9_-]+$/.test(newUsername)) {
+            throw new ValidationError('Username can only contain letters, numbers, underscores, and hyphens');
+        }
+
+        const user = await User.findById(userId);
+        if (!user) {
+            throw new AuthenticationError('User not found');
+        }
+
+        // Verify password
+        const isValid = await user.comparePassword(password);
+        if (!isValid) {
+            throw new AuthenticationError('Password is incorrect');
+        }
+
+        // Check if new username is already taken
+        const existingUser = await User.findByUsername(newUsername);
+        if (existingUser && existingUser._id.toString() !== userId.toString()) {
+            throw new ConflictError('Username already taken');
+        }
+
+        const oldUsername = user.username;
+        user.username = newUsername.toLowerCase();
+        await user.save();
+
+        logger.info('Username changed', { userId, oldUsername, newUsername: user.username });
+
+        return { message: 'Username changed successfully', username: user.username };
+    }
+
+    /**
+     * Change email (requires password verification)
+     */
+    async changeEmail(userId, newEmail, password) {
+        if (!newEmail || !newEmail.includes('@')) {
+            throw new ValidationError('Please enter a valid email address');
+        }
+
+        const user = await User.findById(userId);
+        if (!user) {
+            throw new AuthenticationError('User not found');
+        }
+
+        // Verify password
+        const isValid = await user.comparePassword(password);
+        if (!isValid) {
+            throw new AuthenticationError('Password is incorrect');
+        }
+
+        // Check if new email is already taken
+        const existingUser = await User.findByEmail(newEmail);
+        if (existingUser && existingUser._id.toString() !== userId.toString()) {
+            throw new ConflictError('Email already in use');
+        }
+
+        const oldEmail = user.email;
+        user.email = newEmail.toLowerCase();
+        await user.save();
+
+        logger.info('Email changed', { userId, oldEmail, newEmail: user.email });
+
+        return { message: 'Email changed successfully', email: user.email };
     }
 }
 

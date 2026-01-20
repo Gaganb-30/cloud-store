@@ -20,10 +20,14 @@ router.get('/stats', adminController.getSystemStats);
 router.get('/users', adminController.getUsers);
 router.post('/users/:userId/promote', validateObjectId('userId'), adminController.promoteUser);
 router.post('/users/:userId/demote', validateObjectId('userId'), adminController.demoteUser);
+router.post('/users/:userId/block', validateObjectId('userId'), adminController.blockUser);
+router.post('/users/:userId/restrict', validateObjectId('userId'), adminController.restrictUser);
+router.post('/users/:userId/unblock', validateObjectId('userId'), adminController.unblockUser);
 router.put('/users/:userId/quota', validateObjectId('userId'), adminController.setUserQuota);
 
 // File management
 router.delete('/files/:fileId', validateObjectId('fileId'), adminController.forceDeleteFile);
+router.post('/files/bulk-delete', adminController.bulkDeleteFiles);
 router.post('/files/:fileId/migrate', validateObjectId('fileId'), adminController.forceMigrateFile);
 router.put('/files/:fileId/expiry', validateObjectId('fileId'), adminController.setFileExpiry);
 

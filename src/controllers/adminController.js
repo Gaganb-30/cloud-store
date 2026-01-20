@@ -54,6 +54,16 @@ export async function forceDeleteFile(req, res, next) {
     }
 }
 
+export async function bulkDeleteFiles(req, res, next) {
+    try {
+        const { fileIds } = req.body;
+        const result = await adminService.bulkDeleteFiles(fileIds);
+        res.json(result);
+    } catch (error) {
+        next(error);
+    }
+}
+
 export async function forceMigrateFile(req, res, next) {
     try {
         const { tier } = req.body;
@@ -77,6 +87,33 @@ export async function setFileExpiry(req, res, next) {
 export async function getSystemStats(req, res, next) {
     try {
         const result = await adminService.getSystemStats();
+        res.json(result);
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function blockUser(req, res, next) {
+    try {
+        const result = await adminService.blockUser(req.params.userId);
+        res.json(result);
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function restrictUser(req, res, next) {
+    try {
+        const result = await adminService.restrictUser(req.params.userId);
+        res.json(result);
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function unblockUser(req, res, next) {
+    try {
+        const result = await adminService.unblockUser(req.params.userId);
         res.json(result);
     } catch (error) {
         next(error);

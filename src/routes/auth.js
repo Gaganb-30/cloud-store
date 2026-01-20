@@ -14,5 +14,7 @@ router.post('/refresh', authRateLimit, authController.refresh);
 router.post('/logout', authenticate, authController.logout);
 router.get('/me', authenticate, authController.me);
 router.post('/change-password', authenticate, authController.changePassword);
+router.post('/change-username', authenticate, authController.changeUsername);
+router.post('/change-email', authenticate, authController.changeEmail);
 
 export default router;

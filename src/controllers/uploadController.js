@@ -3,11 +3,16 @@
  * With comprehensive upload logging
  */
 import uploadService from '../services/UploadService.js';
-import { ValidationError } from '../utils/errors.js';
+import { ValidationError, AuthorizationError } from '../utils/errors.js';
 import { logUpload } from '../utils/logger.js';
 
 export async function initUpload(req, res, next) {
     try {
+        // Check if user is restricted
+        if (req.user.status === 'restricted') {
+            throw new AuthorizationError('Your account has been restricted. You cannot upload files. Please contact support for assistance.');
+        }
+
         const { filename, size, hash, mimeType, folderId } = req.body;
 
         if (!filename || !size) {

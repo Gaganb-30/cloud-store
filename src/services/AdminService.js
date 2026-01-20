@@ -92,6 +92,82 @@ class AdminService {
         return { success: true };
     }
 
+    /**
+     * Bulk delete files (for DMCA takedowns)
+     * Accepts up to 100 file IDs, skips invalid/missing ones
+     */
+    async bulkDeleteFiles(fileIds) {
+        if (!Array.isArray(fileIds) || fileIds.length === 0) {
+            throw new ValidationError('File IDs array is required');
+        }
+
+        if (fileIds.length > 100) {
+            throw new ValidationError('Maximum 100 files can be deleted at once');
+        }
+
+        const storageProvider = (await import('../providers/storage/index.js')).default;
+
+        const results = {
+            deleted: [],
+            failed: [],
+            skipped: [],
+        };
+
+        for (const fileId of fileIds) {
+            try {
+                // Validate ObjectId format
+                if (!fileId || typeof fileId !== 'string' || fileId.length !== 24) {
+                    results.skipped.push({ fileId, reason: 'Invalid ID format' });
+                    continue;
+                }
+
+                const file = await File.findById(fileId);
+                if (!file) {
+                    results.skipped.push({ fileId, reason: 'File not found' });
+                    continue;
+                }
+
+                if (file.isDeleted) {
+                    results.skipped.push({ fileId, reason: 'Already deleted' });
+                    continue;
+                }
+
+                // Delete from storage
+                try {
+                    await storageProvider.delete(file.storageKey, file.storageTier);
+                } catch (storageErr) {
+                    logger.error('Storage delete failed during bulk delete', { fileId, error: storageErr.message });
+                }
+
+                // Update quota
+                const quota = await Quota.getOrCreate(file.userId);
+                await quota.removeFile(file.size);
+
+                // Soft delete the file record
+                await file.softDelete();
+
+                results.deleted.push({
+                    fileId,
+                    filename: file.originalName,
+                    size: file.size,
+                    userId: file.userId.toString(),
+                });
+
+            } catch (err) {
+                results.failed.push({ fileId, reason: err.message });
+            }
+        }
+
+        logger.info('Bulk delete completed', {
+            total: fileIds.length,
+            deleted: results.deleted.length,
+            failed: results.failed.length,
+            skipped: results.skipped.length,
+        });
+
+        return results;
+    }
+
     async forceMigrateFile(fileId, targetTier) {
         if (!Object.values(StorageTier).includes(targetTier)) {
             throw new ValidationError(`Invalid tier: ${targetTier}`);
@@ -137,6 +213,91 @@ class AdminService {
                 total: downloadAgg[0]?.total || 0,
             },
         };
+    }
+
+    /**
+     * Block user - deactivate account and delete all files permanently
+     */
+    async blockUser(userId) {
+        const user = await User.findById(userId);
+        if (!user) throw new NotFoundError('User');
+        if (user.role === UserRole.ADMIN) throw new ValidationError('Cannot block admin users');
+
+        // Get storage provider
+        const storageProvider = (await import('../providers/storage/index.js')).default;
+
+        // Find and delete all user files from storage
+        const files = await File.find({ userId, isDeleted: false });
+        let deletedCount = 0;
+        let freedSpace = 0;
+
+        for (const file of files) {
+            try {
+                await storageProvider.delete(file.storageKey, file.storageTier);
+                freedSpace += file.size;
+                deletedCount++;
+            } catch (err) {
+                logger.error('Failed to delete file during block', { fileId: file._id, error: err.message });
+            }
+        }
+
+        // Hard delete all file records
+        await File.deleteMany({ userId });
+
+        // Reset quota
+        const quota = await Quota.findOne({ userId });
+        if (quota) {
+            quota.usage.storage = 0;
+            quota.usage.fileCount = 0;
+            await quota.save();
+        }
+
+        // Update user status
+        const { UserStatus } = await import('../models/index.js');
+        user.status = UserStatus.BLOCKED;
+        user.isActive = false;
+        await user.removeAllRefreshTokens();
+        await user.save();
+
+        logger.info('User blocked', { userId, deletedFiles: deletedCount, freedSpace });
+        return {
+            success: true,
+            user: user.toJSON(),
+            deletedFiles: deletedCount,
+            freedSpace,
+        };
+    }
+
+    /**
+     * Restrict user - disable uploads but keep files accessible
+     */
+    async restrictUser(userId) {
+        const user = await User.findById(userId);
+        if (!user) throw new NotFoundError('User');
+        if (user.role === UserRole.ADMIN) throw new ValidationError('Cannot restrict admin users');
+
+        const { UserStatus } = await import('../models/index.js');
+        user.status = UserStatus.RESTRICTED;
+        await user.save();
+
+        logger.info('User restricted', { userId });
+        return { success: true, user: user.toJSON() };
+    }
+
+    /**
+     * Unblock/Unrestrict user - restore to active status
+     */
+    async unblockUser(userId) {
+        const user = await User.findById(userId);
+        if (!user) throw new NotFoundError('User');
+
+        const { UserStatus } = await import('../models/index.js');
+        user.status = UserStatus.ACTIVE;
+        user.isActive = true;
+        await user.save();
+
+        logger.info('User unblocked', { userId });
+        return { success: true, user: user.toJSON() };
     }
 }
 
