@@ -1,0 +1,15 @@
+{
+    "keep": {
+        "days": true,
+        "amount": 30
+    },
+    "auditLog": "C:\\Users\\GAGAN BISHT\\Downloads\\Storage Service 2\\logs\\.6175c386a60ef91b1631a4186f3316bcb6a22dc1-audit.json",
+    "files": [
+        {
+            "date": 1768895435809,
+            "name": "C:\\Users\\GAGAN BISHT\\Downloads\\Storage Service 2\\logs\\combined-2026-01-20.log",
+            "hash": "82e034506e627e36e9793f20f79facab383eaf2103cd6181dbdc807b513d766c"
+        }
+    ],
+    "hashType": "sha256"
+}
