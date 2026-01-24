@@ -18,6 +18,7 @@ export default function ConfirmModal({
     details = [],
     note = '',
     loading = false,
+    children = null, // Custom content slot
 }) {
     if (!isOpen) return null;
 
@@ -111,6 +112,13 @@ export default function ConfirmModal({
                                         <p className="text-xs text-gray-600 dark:text-gray-400">
                                             <strong>Note:</strong> {note}
                                         </p>
+                                    </div>
+                                )}
+
+                                {/* Custom content slot */}
+                                {children && (
+                                    <div className="mt-4 ml-16">
+                                        {children}
                                     </div>
                                 )}
                             </div>

@@ -18,8 +18,8 @@ export const adminApi = {
         return response.data;
     },
 
-    async promoteUser(userId) {
-        const response = await client.post(`/admin/users/${userId}/promote`);
+    async promoteUser(userId, durationMonths = null) {
+        const response = await client.post(`/admin/users/${userId}/promote`, { durationMonths });
         return response.data;
     },
 
@@ -65,6 +65,28 @@ export const adminApi = {
 
     async setFileExpiry(fileId, expiresAt) {
         const response = await client.put(`/admin/files/${fileId}/expiry`, { expiresAt });
+        return response.data;
+    },
+
+    // ==================== View-as-User Feature ====================
+
+    async getUserDashboard(userId) {
+        const response = await client.get(`/admin/users/${userId}/dashboard`);
+        return response.data;
+    },
+
+    async getUserFolderContents(userId, folderId = 'root', options = {}) {
+        const { page = 1, limit = 50, sort = 'name' } = options;
+        const response = await client.get(`/admin/users/${userId}/folders/${folderId}/contents`, {
+            params: { page, limit, sort },
+        });
+        return response.data;
+    },
+
+    async getUserAnalytics(userId, period = 30) {
+        const response = await client.get(`/admin/users/${userId}/analytics`, {
+            params: { period },
+        });
         return response.data;
     },
 };

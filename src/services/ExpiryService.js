@@ -14,7 +14,12 @@ class ExpiryService {
      * Get expired files for cleanup
      */
     async getExpiredFiles(limit = 100) {
-        return File.findExpiredFiles(limit);
+        const files = await File.findExpiredFiles(limit);
+        logger.debug('Checking for expired files', {
+            count: files.length,
+            now: new Date().toISOString(),
+        });
+        return files;
     }
 
     /**
@@ -124,7 +129,7 @@ class ExpiryService {
     /**
      * Delete file (internal)
      */
-    async _deleteFile(file) {
+    async _deleteFile(file, reason = 'expired') {
         try {
             // Delete from storage
             await storageProvider.delete(file.storageKey, file.storageTier);
@@ -139,16 +144,17 @@ class ExpiryService {
             // Invalidate cache
             await cacheProvider.delete(`file:${file._id}`);
 
-            logger.info('Expired file deleted', {
+            logger.info(`File deleted (${reason})`, {
                 fileId: file._id,
                 storageKey: file.storageKey,
                 size: file.size,
                 userId: file.userId,
+                reason,
             });
 
             return { success: true, fileId: file._id };
         } catch (error) {
-            logger.error('Failed to delete expired file', {
+            logger.error(`Failed to delete file (${reason})`, {
                 fileId: file._id,
                 error: error.message,
             });
@@ -201,7 +207,7 @@ class ExpiryService {
         const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
         const oneWeekFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
-        const [expired, expiringToday, expiringWeek, noExpiry] = await Promise.all([
+        const [expired, expiringToday, expiringWeek, noExpiry, inactive] = await Promise.all([
             File.countDocuments({
                 expiresAt: { $lte: now },
                 isDeleted: false,
@@ -218,6 +224,8 @@ class ExpiryService {
                 expiresAt: null,
                 isDeleted: false,
             }),
+            // Count inactive files (not downloaded for 90 days)
+            this.getInactiveFilesCount(),
         ]);
 
         return {
@@ -225,7 +233,105 @@ class ExpiryService {
             expiringToday,
             expiringWeek,
             noExpiry,
+            inactive,
         };
+    }
+
+    // ==================== Inactivity Deletion (applies to ALL users) ====================
+
+    /**
+     * Get files not downloaded for X days (default 90)
+     * Applies to ALL users including premium and admin
+     */
+    async getInactiveFiles(limit = 100) {
+        const inactivityDays = config.expiry.inactivityDays || 90;
+        const cutoffDate = new Date(Date.now() - inactivityDays * 24 * 60 * 60 * 1000);
+
+        logger.debug('Checking for inactive files', {
+            inactivityDays,
+            cutoffDate: cutoffDate.toISOString(),
+            now: new Date().toISOString(),
+        });
+
+        const files = await File.findInactiveFiles(inactivityDays, limit);
+
+        logger.debug('Inactive files found', { count: files.length });
+
+        return files;
+    }
+
+    /**
+     * Get count of inactive files
+     */
+    async getInactiveFilesCount() {
+        const inactivityDays = config.expiry.inactivityDays || 90;
+        const cutoffDate = new Date(Date.now() - inactivityDays * 24 * 60 * 60 * 1000);
+
+        return File.countDocuments({
+            isDeleted: false,
+            $or: [
+                { lastDownloadAt: null, createdAt: { $lte: cutoffDate } },
+                { lastDownloadAt: { $lte: cutoffDate } },
+            ],
+        });
+    }
+
+    /**
+     * Delete an inactive file
+     */
+    async deleteInactiveFile(fileId) {
+        const file = await File.findById(fileId);
+
+        if (!file) {
+            return { success: false, message: 'File not found' };
+        }
+
+        const inactivityDays = config.expiry.inactivityDays || 90;
+        const cutoffDate = new Date(Date.now() - inactivityDays * 24 * 60 * 60 * 1000);
+
+        // Check if truly inactive
+        const lastActivity = file.lastDownloadAt || file.createdAt;
+        if (lastActivity > cutoffDate) {
+            return { success: false, message: 'File is still active' };
+        }
+
+        return this._deleteFile(file, 'inactivity');
+    }
+
+    /**
+     * Process batch of inactive files
+     */
+    async processInactiveBatch(limit = 100) {
+        const files = await this.getInactiveFiles(limit);
+
+        const results = {
+            processed: 0,
+            deleted: 0,
+            failed: 0,
+            errors: [],
+        };
+
+        for (const file of files) {
+            results.processed++;
+
+            const result = await this.deleteInactiveFile(file._id);
+
+            if (result.success) {
+                results.deleted++;
+            } else {
+                results.failed++;
+                results.errors.push({
+                    fileId: file._id,
+                    error: result.message || result.error,
+                });
+            }
+        }
+
+        if (results.processed > 0) {
+            logger.info('Inactivity batch processed', results);
+        }
+
+        return results;
     }
 }
 

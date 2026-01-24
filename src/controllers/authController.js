@@ -6,6 +6,63 @@ import authService from '../services/AuthService.js';
 import { ValidationError } from '../utils/errors.js';
 import { logAuth } from '../utils/logger.js';
 
+// Step 1: Initiate registration - sends OTP
+export async function initiateRegister(req, res, next) {
+    try {
+        const { email, username, password } = req.body;
+        const result = await authService.initiateRegistration(email, username, password);
+
+        logAuth('register_initiated', {
+            message: 'Registration OTP sent',
+            email,
+            username,
+            ip: req.logContext?.ip,
+            country: req.logContext?.geo?.country,
+        });
+
+        res.json(result);
+    } catch (error) {
+        logAuth('register_initiate_failed', {
+            message: 'Registration initiation failed',
+            email: req.body?.email,
+            error: error.message,
+            ip: req.logContext?.ip,
+        });
+        next(error);
+    }
+}
+
+// Step 2: Complete registration - verify OTP
+export async function completeRegister(req, res, next) {
+    try {
+        const { email, otp } = req.body;
+        if (!email || !otp) throw new ValidationError('Email and OTP are required');
+
+        const result = await authService.completeRegistration(email, otp);
+
+        logAuth('register_success', {
+            message: 'New user registered',
+            email,
+            username: result.user.username,
+            userId: result.user.id,
+            ip: req.logContext?.ip,
+            country: req.logContext?.geo?.country,
+            browser: req.logContext?.ua?.browser,
+        });
+
+        res.status(201).json(result);
+    } catch (error) {
+        logAuth('register_complete_failed', {
+            message: 'Registration completion failed',
+            email: req.body?.email,
+            error: error.message,
+            ip: req.logContext?.ip,
+        });
+        next(error);
+    }
+}
+
+// Legacy direct registration (still blocks temp emails)
 export async function register(req, res, next) {
     try {
         const { email, username, password } = req.body;
@@ -182,6 +239,85 @@ export async function changeEmail(req, res, next) {
         logAuth('email_change_failed', {
             message: 'Email change failed',
             userId: req.user._id?.toString(),
+            error: error.message,
+            ip: req.logContext?.ip,
+        });
+        next(error);
+    }
+}
+
+// ==================== Password Reset (Forgot Password) ====================
+
+export async function forgotPassword(req, res, next) {
+    try {
+        const { email } = req.body;
+        if (!email) throw new ValidationError('Email is required');
+
+        const result = await authService.forgotPassword(email);
+
+        logAuth('password_reset_requested', {
+            message: 'Password reset OTP requested',
+            email,
+            ip: req.logContext?.ip,
+            country: req.logContext?.geo?.country,
+        });
+
+        res.json(result);
+    } catch (error) {
+        logAuth('password_reset_request_failed', {
+            message: 'Password reset request failed',
+            email: req.body?.email,
+            error: error.message,
+            ip: req.logContext?.ip,
+        });
+        next(error);
+    }
+}
+
+export async function verifyOtp(req, res, next) {
+    try {
+        const { email, otp } = req.body;
+        if (!email || !otp) throw new ValidationError('Email and OTP are required');
+
+        const result = await authService.verifyResetOTP(email, otp);
+
+        logAuth('otp_verified', {
+            message: 'Password reset OTP verified',
+            email,
+            ip: req.logContext?.ip,
+        });
+
+        res.json(result);
+    } catch (error) {
+        logAuth('otp_verification_failed', {
+            message: 'OTP verification failed',
+            email: req.body?.email,
+            error: error.message,
+            ip: req.logContext?.ip,
+        });
+        next(error);
+    }
+}
+
+export async function resetPassword(req, res, next) {
+    try {
+        const { email, newPassword } = req.body;
+        if (!email || !newPassword) throw new ValidationError('Email and new password are required');
+
+        const result = await authService.resetPassword(email, newPassword);
+
+        logAuth('password_reset_success', {
+            message: 'Password reset successful',
+            email,
+            ip: req.logContext?.ip,
+            country: req.logContext?.geo?.country,
+        });
+
+        res.json(result);
+    } catch (error) {
+        logAuth('password_reset_failed', {
+            message: 'Password reset failed',
+            email: req.body?.email,
             error: error.message,
             ip: req.logContext?.ip,
         });

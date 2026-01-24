@@ -4,6 +4,7 @@
 import { Router } from 'express';
 import authRoutes from './auth.js';
 import uploadRoutes from './upload.js';
+import r2UploadRoutes from './r2Upload.js';
 import downloadRoutes from './download.js';
 import folderRoutes from './folders.js';
 import adminRoutes from './admin.js';
@@ -13,6 +14,7 @@ const router = Router();
 
 router.use('/auth', authRoutes);
 router.use('/upload', uploadRoutes);
+router.use('/upload', r2UploadRoutes); // R2 direct upload routes
 router.use('/download', downloadRoutes);
 router.use('/files', downloadRoutes); // Alias
 router.use('/folders', folderRoutes);

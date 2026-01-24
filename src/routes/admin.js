@@ -31,4 +31,12 @@ router.post('/files/bulk-delete', adminController.bulkDeleteFiles);
 router.post('/files/:fileId/migrate', validateObjectId('fileId'), adminController.forceMigrateFile);
 router.put('/files/:fileId/expiry', validateObjectId('fileId'), adminController.setFileExpiry);
 
+// View-as-User feature (admin viewing user data)
+router.get('/users/:userId/dashboard', validateObjectId('userId'), adminController.getUserDashboard);
+router.get('/users/:userId/folders/:folderId/contents', validateObjectId('userId'), adminController.getUserFolderContents);
+router.get('/users/:userId/analytics', validateObjectId('userId'), adminController.getUserAnalytics);
+
+// Cleanup tools
+router.post('/cleanup/run', adminController.runCleanup);
+
 export default router;

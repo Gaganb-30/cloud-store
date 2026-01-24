@@ -19,6 +19,13 @@ import Settings from './pages/Settings';
 import Admin from './pages/Admin';
 import PublicDownload from './pages/PublicDownload';
 import Analytics from './pages/Analytics';
+import AdminViewUser from './pages/AdminViewUser';
+import ForgotPassword from './pages/ForgotPassword';
+import DMCA from './pages/DMCA';
+import Contact from './pages/Contact';
+import Premium from './pages/Premium';
+import Docs from './pages/Docs';
+import AdminDocs from './pages/AdminDocs';
 
 // Protected Route
 function ProtectedRoute({ children, adminOnly = false }) {
@@ -66,6 +73,10 @@ export default function App() {
                     <Route path="/" element={<Home />} />
                     <Route path="/file/:fileId" element={<FileDetails />} />
                     <Route path="/d/:fileId" element={<PublicDownload />} />
+                    <Route path="/dmca" element={<DMCA />} />
+                    <Route path="/contact" element={<Contact />} />
+                    <Route path="/premium" element={<Premium />} />
+                    <Route path="/docs" element={<Docs />} />
 
                     {/* Guest Only */}
                     <Route
@@ -81,6 +92,14 @@ export default function App() {
                         element={
                             <GuestRoute>
                                 <Register />
+                            </GuestRoute>
+                        }
+                    />
+                    <Route
+                        path="/forgot-password"
+                        element={
+                            <GuestRoute>
+                                <ForgotPassword />
                             </GuestRoute>
                         }
                     />
@@ -133,6 +152,22 @@ export default function App() {
                         element={
                             <ProtectedRoute adminOnly>
                                 <Admin />
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/admin/view-user/:userId"
+                        element={
+                            <ProtectedRoute adminOnly>
+                                <AdminViewUser />
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/admin/docs"
+                        element={
+                            <ProtectedRoute adminOnly>
+                                <AdminDocs />
                             </ProtectedRoute>
                         }
                     />

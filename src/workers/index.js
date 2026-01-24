@@ -5,6 +5,7 @@
 import expiryWorker from './expiryWorker.js';
 import migrationWorker from './migrationWorker.js';
 import cleanupWorker from './cleanupWorker.js';
+import premiumExpiryWorker from './premiumExpiryWorker.js';
 import logger from '../utils/logger.js';
 
 class WorkerManager {
@@ -13,6 +14,7 @@ class WorkerManager {
             { name: 'expiry', instance: expiryWorker },
             { name: 'migration', instance: migrationWorker },
             { name: 'cleanup', instance: cleanupWorker },
+            { name: 'premiumExpiry', instance: premiumExpiryWorker },
         ];
     }
 

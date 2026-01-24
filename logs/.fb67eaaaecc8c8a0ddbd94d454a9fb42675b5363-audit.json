@@ -14,6 +14,21 @@
             "date": 1768882295776,
             "name": "/Users/shivansh/Desktop/Storage Service/logs/combined-2026-01-20.log",
             "hash": "4bca7e4ce54ad315c0678fea24faeecf706e37ca340117e1a338eead54e55622"
+        },
+        {
+            "date": 1768942746163,
+            "name": "/Users/shivansh/Desktop/Storage Service/logs/combined-2026-01-21.log",
+            "hash": "cffb764f157f3e3d2d8d52633cb31012552a772f1935c715bed7a4c83696bfd6"
+        },
+        {
+            "date": 1769117620189,
+            "name": "/Users/shivansh/Desktop/Storage Service/logs/combined-2026-01-23.log",
+            "hash": "e6c6a6d88645425a869c500468fd39270015ae2ff0c5b26d1c26e0d7f823bdd7"
+        },
+        {
+            "date": 1769193488257,
+            "name": "/Users/shivansh/Desktop/Storage Service/logs/combined-2026-01-24.log",
+            "hash": "664bc1c5ed431839e7f980e47876ba47ac920f91766ba02002c8adb16f09cf31"
         }
     ],
     "hashType": "sha256"

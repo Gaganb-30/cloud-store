@@ -10,6 +10,58 @@ const UploadContext = createContext();
 
 const CHUNK_SIZE = 25 * 1024 * 1024; // 25MB chunks for speed
 
+// Format bytes to human readable
+function formatBytes(bytes) {
+    if (bytes === -1) return 'Unlimited';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let size = bytes;
+    let unitIndex = 0;
+    while (size >= 1024 && unitIndex < units.length - 1) {
+        size /= 1024;
+        unitIndex++;
+    }
+    return `${size.toFixed(size < 10 ? 1 : 0)} ${units[unitIndex]}`;
+}
+
+// Parse and format upload error messages for better UX
+function formatUploadError(error, filename) {
+    // Backend returns { error: { message, code } } format
+    const errorData = error?.response?.data?.error || error?.response?.data || {};
+    const message = errorData?.message || error?.response?.data?.message || error?.message || 'Upload failed';
+    const code = errorData?.code || '';
+
+    // File too large error (check code first, then message)
+    if (code === 'VALIDATION_ERROR' && message.includes('exceeds maximum size')) {
+        return `File size limit exceeded. Free accounts can upload files up to 10 GB. Upgrade to Premium for unlimited file sizes.`;
+    }
+
+    if (message.includes('FILE_TOO_LARGE') || message.includes('exceeds maximum size')) {
+        return `File size limit exceeded. Free accounts can upload files up to 10 GB. Upgrade to Premium for unlimited file sizes.`;
+    }
+
+    // Storage quota exceeded
+    if (message.includes('STORAGE_EXCEEDED') || message.includes('exceed storage quota') || message.includes('storage quota')) {
+        return `Storage limit of 25 GB exceeded. Delete some files or upgrade to Premium for unlimited storage.`;
+    }
+
+    // File count exceeded
+    if (message.includes('FILE_COUNT_EXCEEDED') || message.includes('file count')) {
+        return 'Maximum file count reached. Delete some files or upgrade to Premium.';
+    }
+
+    // Quota check failed
+    if (message.includes('quota check') || message.includes('Upload not allowed')) {
+        return 'Upload not allowed. Check your account storage limits.';
+    }
+
+    // Return the backend message directly if it's descriptive
+    if (message && message !== 'Upload failed' && !message.includes('status code')) {
+        return message;
+    }
+
+    return 'Upload failed. Please try again.';
+}
+
 const initialState = {
     queue: [],
     uploading: false,
@@ -69,6 +121,7 @@ export function UploadProvider({ children }) {
     const [state, dispatch] = useReducer(uploadReducer, initialState);
     const speedTrackerRef = useRef({});
     const abortControllersRef = useRef({});
+    const sessionIdsRef = useRef({}); // Track file id -> session id mapping
 
     const addFile = useCallback((file, folderId = null) => {
         const id = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -112,17 +165,18 @@ export function UploadProvider({ children }) {
         updateFile(id, { status: 'cancelled', error: 'Upload cancelled' });
         toast('Upload cancelled');
 
-        // Find the session ID to clean up server-side
-        const file = state.queue.find(f => f.id === id);
-        if (file?.sessionId) {
+        // Get session ID from ref (more reliable than state)
+        const sessionId = sessionIdsRef.current[id];
+        if (sessionId) {
             try {
-                await uploadApi.abortUpload(file.sessionId);
+                await uploadApi.abortUpload(sessionId);
+                console.log('Server cleanup successful for session:', sessionId);
             } catch (err) {
-                // Ignore errors - server cleanup is best effort
                 console.log('Server cleanup failed:', err.message);
             }
+            delete sessionIdsRef.current[id];
         }
-    }, [updateFile, state.queue]);
+    }, [updateFile]);
 
     // Speed calculation helper
     const calculateSpeed = useCallback((id, bytesUploaded, totalBytes) => {
@@ -163,6 +217,7 @@ export function UploadProvider({ children }) {
         return { speed: avgSpeed, eta };
     }, []);
 
+    // Proxied upload (through backend) - for local storage or when hiding R2 is critical
     const uploadFile = useCallback(async (uploadItem) => {
         const { id, file } = uploadItem;
 
@@ -207,6 +262,9 @@ export function UploadProvider({ children }) {
                 lastBytes: 0,
                 samples: [],
             };
+
+            // Store sessionId in ref for reliable cancel cleanup
+            sessionIdsRef.current[id] = session.sessionId;
 
             updateFile(id, {
                 sessionId: session.sessionId,
@@ -286,14 +344,23 @@ export function UploadProvider({ children }) {
                 // Calculate speed
                 const { speed, eta } = calculateSpeed(id, uploadedBytes, file.size);
 
-                updateFile(id, {
-                    progress,
-                    uploadedChunks,
-                    uploadedBytes,
-                    speed,
-                    eta,
-                    status: 'uploading'
-                });
+                // Throttle UI updates to every 1 second (or on final batch)
+                const tracker = speedTrackerRef.current[id];
+                const now = Date.now();
+                const timeSinceLastUIUpdate = now - (tracker.lastUIUpdate || 0);
+                const isFinalBatch = batchEnd >= totalChunks;
+
+                if (timeSinceLastUIUpdate >= 1000 || isFinalBatch || !tracker.lastUIUpdate) {
+                    tracker.lastUIUpdate = now;
+                    updateFile(id, {
+                        progress,
+                        uploadedChunks,
+                        uploadedBytes,
+                        speed,
+                        eta,
+                        status: 'uploading'
+                    });
+                }
             }
 
             // Complete upload
@@ -303,6 +370,191 @@ export function UploadProvider({ children }) {
             // Cleanup
             delete speedTrackerRef.current[id];
             delete abortControllersRef.current[id];
+            delete sessionIdsRef.current[id];
+
+            updateFile(id, {
+                status: 'completed',
+                progress: 100,
+                speed: 0,
+                eta: null,
+                fileId: result.fileId,
+                downloadUrl: result.downloadUrl
+            });
+
+            toast.success(`${file.name} uploaded successfully!`);
+            return result;
+        } catch (error) {
+            delete speedTrackerRef.current[id];
+            delete abortControllersRef.current[id];
+            delete sessionIdsRef.current[id];
+
+            // Don't show error toast for cancelled uploads
+            if (error.message !== 'Upload cancelled') {
+                updateFile(id, {
+                    status: 'error',
+                    error: error.message
+                });
+                toast.error(formatUploadError(error, file.name));
+            }
+            throw error;
+        }
+    }, [updateFile, calculateSpeed]);
+
+    // R2 Direct Upload using presigned URLs (FAST - uploads directly to R2)
+    const uploadFileR2 = useCallback(async (uploadItem) => {
+        const { id, file } = uploadItem;
+
+        // Create AbortController for this upload
+        const abortController = new AbortController();
+        abortControllersRef.current[id] = abortController;
+
+        try {
+            updateFile(id, { status: 'initializing' });
+
+            // Verify file is still readable
+            try {
+                await file.slice(0, 1).arrayBuffer();
+            } catch (readError) {
+                throw new Error('File is no longer accessible. Please re-select the file.');
+            }
+
+            // Initialize R2 multipart upload (gets presigned URLs)
+            const session = await uploadApi.initR2Upload(
+                file.name,
+                file.size,
+                file.type,
+                uploadItem.folderId
+            );
+
+            // Initialize speed tracker
+            speedTrackerRef.current[id] = {
+                startTime: Date.now(),
+                lastTime: Date.now(),
+                lastBytes: 0,
+                samples: [],
+            };
+
+            sessionIdsRef.current[id] = session.sessionId;
+
+            updateFile(id, {
+                sessionId: session.sessionId,
+                status: 'uploading',
+                totalChunks: session.totalParts
+            });
+
+            // Upload parts directly to R2 using presigned URLs IN PARALLEL for maximum speed
+            const totalParts = session.totalParts;
+            const partSize = session.partSize;
+            const PARALLEL_PARTS = 4; // Upload 4 parts concurrently for speed
+
+            // Track results and progress
+            const partResults = new Array(totalParts);
+            const partProgress = new Array(totalParts).fill(0);
+            let completedParts = 0;
+
+            // Helper to calculate total uploaded bytes from all parts
+            const calculateTotalProgress = () => {
+                return partProgress.reduce((sum, bytes) => sum + bytes, 0);
+            };
+
+            // Upload a single part
+            const uploadPart = async (partIndex) => {
+                if (abortController.signal.aborted) {
+                    throw new Error('Upload cancelled');
+                }
+
+                const start = partIndex * partSize;
+                const end = Math.min(start + partSize, file.size);
+                const partData = file.slice(start, end);
+                const partBuffer = await partData.arrayBuffer();
+                const partSizeBytes = partBuffer.byteLength;
+
+                // Upload directly to R2 using presigned URL with progress tracking
+                const { etag } = await uploadApi.uploadPartToR2(
+                    session.presignedUrls[partIndex].url,
+                    partBuffer,
+                    // Progress callback for this part
+                    (loadedInPart, totalInPart) => {
+                        partProgress[partIndex] = loadedInPart;
+
+                        // Calculate total progress across all parts
+                        const totalUploaded = calculateTotalProgress();
+                        const progress = Math.round((totalUploaded / file.size) * 100);
+                        const { speed, eta } = calculateSpeed(id, totalUploaded, file.size);
+
+                        // Throttle UI updates to every 300ms
+                        const tracker = speedTrackerRef.current[id];
+                        if (!tracker) return;
+
+                        const now = Date.now();
+                        const timeSinceLastUIUpdate = now - (tracker.lastUIUpdate || 0);
+
+                        if (timeSinceLastUIUpdate >= 300 || !tracker.lastUIUpdate) {
+                            tracker.lastUIUpdate = now;
+                            updateFile(id, {
+                                progress,
+                                uploadedChunks: completedParts,
+                                uploadedBytes: totalUploaded,
+                                speed,
+                                eta,
+                                status: 'uploading'
+                            });
+                        }
+                    }
+                );
+
+                // Mark part as complete
+                partProgress[partIndex] = partSizeBytes;
+                partResults[partIndex] = etag;
+                completedParts++;
+
+                // Update UI on part completion
+                const totalUploaded = calculateTotalProgress();
+                const progress = Math.round((totalUploaded / file.size) * 100);
+                const { speed, eta } = calculateSpeed(id, totalUploaded, file.size);
+                const tracker = speedTrackerRef.current[id];
+                if (tracker) tracker.lastUIUpdate = Date.now();
+
+                updateFile(id, {
+                    progress,
+                    uploadedChunks: completedParts,
+                    uploadedBytes: totalUploaded,
+                    speed,
+                    eta,
+                    status: 'uploading'
+                });
+
+                return etag;
+            };
+
+            // Upload parts in parallel batches
+            for (let batchStart = 0; batchStart < totalParts; batchStart += PARALLEL_PARTS) {
+                if (abortController.signal.aborted) {
+                    throw new Error('Upload cancelled');
+                }
+
+                const batchEnd = Math.min(batchStart + PARALLEL_PARTS, totalParts);
+                const batchPromises = [];
+
+                for (let i = batchStart; i < batchEnd; i++) {
+                    batchPromises.push(uploadPart(i));
+                }
+
+                // Wait for batch to complete
+                await Promise.all(batchPromises);
+            }
+
+            // Get etags in order for multipart completion
+            const etags = partResults;
+
+            // Complete multipart upload
+            updateFile(id, { status: 'completing' });
+            const result = await uploadApi.completeR2Upload(session.sessionId, etags);
+
+            // Cleanup
+            delete speedTrackerRef.current[id];
+            delete abortControllersRef.current[id];
+            delete sessionIdsRef.current[id];
 
             updateFile(id, {
                 status: 'completed',
@@ -319,13 +571,23 @@ export function UploadProvider({ children }) {
             delete speedTrackerRef.current[id];
             delete abortControllersRef.current[id];
 
-            // Don't show error toast for cancelled uploads
+            // Try to abort R2 upload on error
+            const sessionId = sessionIdsRef.current[id];
+            if (sessionId) {
+                try {
+                    await uploadApi.abortR2Upload(sessionId);
+                } catch (e) {
+                    console.log('R2 abort failed:', e.message);
+                }
+                delete sessionIdsRef.current[id];
+            }
+
             if (error.message !== 'Upload cancelled') {
                 updateFile(id, {
                     status: 'error',
                     error: error.message
                 });
-                toast.error(`Failed to upload ${file.name}: ${error.message}`);
+                toast.error(formatUploadError(error, file.name));
             }
             throw error;
         }
@@ -339,16 +601,29 @@ export function UploadProvider({ children }) {
 
         dispatch({ type: 'SET_UPLOADING', payload: true });
 
+        // Check storage provider - use R2 direct upload if available (faster)
+        let isR2 = false;
+        try {
+            const storageInfo = await uploadApi.getStorageInfo();
+            isR2 = storageInfo.isR2;
+        } catch (e) {
+            console.log('Could not get storage info, using proxied upload');
+        }
+
         for (const item of pending) {
             try {
-                await uploadFile(item);
+                if (isR2) {
+                    await uploadFileR2(item);
+                } else {
+                    await uploadFile(item);
+                }
             } catch (error) {
                 console.error('Upload failed:', error);
             }
         }
 
         dispatch({ type: 'SET_UPLOADING', payload: false });
-    }, [state.queue, state.uploading, uploadFile]);
+    }, [state.queue, state.uploading, uploadFile, uploadFileR2]);
 
     const clearCompleted = useCallback(() => {
         dispatch({ type: 'CLEAR_COMPLETED' });

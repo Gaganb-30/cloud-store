@@ -12,7 +12,7 @@ import { UserRole } from './User.js';
  */
 export const DefaultQuotas = {
     [UserRole.FREE]: {
-        maxStorage: 50 * 1024 * 1024 * 1024,      // 50 GB
+        maxStorage: 25 * 1024 * 1024 * 1024,      // 25 GB
         maxFileSize: config.upload.maxFileSizeFree, // 10 GB
         maxFiles: 1000,
         bandwidthPriority: 'low',

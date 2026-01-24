@@ -24,6 +24,7 @@ import { foldersApi } from '../../api/folders';
 import { filesApi } from '../../api/files';
 import { formatBytes, formatRelativeTime } from '../../utils/helpers';
 import Button from '../ui/Button';
+import ConfirmModal from '../ui/ConfirmModal';
 import toast from 'react-hot-toast';
 
 export default function FolderBrowser({ onFileSelect, onUploadHere }) {
@@ -37,6 +38,11 @@ export default function FolderBrowser({ onFileSelect, onUploadHere }) {
     const [renaming, setRenaming] = useState(null);
     const [renameValue, setRenameValue] = useState('');
     const [showMoveModal, setShowMoveModal] = useState(null);
+
+    // Delete confirmation modal state
+    const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+    const [itemToDelete, setItemToDelete] = useState(null);
+    const [deleteLoading, setDeleteLoading] = useState(false);
 
     const loadContents = useCallback(async () => {
         setLoading(true);
@@ -94,24 +100,30 @@ export default function FolderBrowser({ onFileSelect, onUploadHere }) {
     };
 
     const handleDelete = async (item) => {
-        const confirmMsg = item.type === 'folder'
-            ? 'Delete this folder? All subfolders and files inside will also be deleted.'
-            : 'Delete this file?';
+        setItemToDelete(item);
+        setDeleteModalOpen(true);
+        setContextMenu(null);
+    };
 
-        if (!confirm(confirmMsg)) return;
+    const handleConfirmDelete = async () => {
+        if (!itemToDelete) return;
 
+        setDeleteLoading(true);
         try {
-            if (item.type === 'folder') {
-                await foldersApi.deleteFolder(item.id);
+            if (itemToDelete.type === 'folder') {
+                await foldersApi.deleteFolder(itemToDelete.id, true);
             } else {
-                await filesApi.deleteFile(item.id);
+                await filesApi.deleteFile(itemToDelete.id);
             }
-            toast.success('Deleted successfully');
+            toast.success(`${itemToDelete.type === 'folder' ? 'Folder' : 'File'} deleted successfully`);
             loadContents();
         } catch (error) {
             toast.error('Failed to delete');
+        } finally {
+            setDeleteLoading(false);
+            setDeleteModalOpen(false);
+            setItemToDelete(null);
         }
-        setContextMenu(null);
     };
 
     const handleMove = async (item, targetFolderId) => {
@@ -392,6 +404,25 @@ export default function FolderBrowser({ onFileSelect, onUploadHere }) {
                     />
                 )}
             </AnimatePresence>
+
+            {/* Delete Confirmation Modal */}
+            <ConfirmModal
+                isOpen={deleteModalOpen}
+                onClose={() => {
+                    setDeleteModalOpen(false);
+                    setItemToDelete(null);
+                }}
+                onConfirm={handleConfirmDelete}
+                loading={deleteLoading}
+                title={`Delete ${itemToDelete?.type === 'folder' ? 'Folder' : 'File'}`}
+                message={
+                    itemToDelete?.type === 'folder'
+                        ? `Are you sure you want to delete "${itemToDelete?.name}"? All subfolders and files inside will also be permanently deleted.`
+                        : `Are you sure you want to delete "${itemToDelete?.name}"? This action cannot be undone.`
+                }
+                confirmText="Delete"
+                confirmVariant="danger"
+            />
         </div>
     );
 }

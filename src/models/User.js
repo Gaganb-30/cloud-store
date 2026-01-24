@@ -92,6 +92,12 @@ const userSchema = new mongoose.Schema({
         maxStorage: Number,       // Bytes, null = use role default
         maxFileSize: Number,      // Bytes, null = use role default
     },
+    // Premium subscription expiry
+    premiumExpiresAt: {
+        type: Date,
+        default: null,
+        index: true,
+    },
 }, {
     timestamps: true,
     toJSON: {
@@ -140,6 +146,30 @@ userSchema.methods.comparePassword = async function (candidatePassword) {
  */
 userSchema.methods.isLockedOut = function () {
     return this.lockoutUntil && this.lockoutUntil > new Date();
+};
+
+/**
+ * Check if premium subscription is active
+ */
+userSchema.virtual('isPremiumActive').get(function () {
+    if (this.role === UserRole.ADMIN) return true;
+    if (this.role !== UserRole.PREMIUM) return false;
+    if (!this.premiumExpiresAt) return true; // Lifetime premium
+    return this.premiumExpiresAt > new Date();
+});
+
+/**
+ * Get effective role (considers premium expiry)
+ */
+userSchema.methods.getEffectiveRole = function () {
+    if (this.role === UserRole.ADMIN) return UserRole.ADMIN;
+    if (this.role === UserRole.PREMIUM) {
+        if (!this.premiumExpiresAt || this.premiumExpiresAt > new Date()) {
+            return UserRole.PREMIUM;
+        }
+        return UserRole.FREE; // Premium expired
+    }
+    return this.role;
 };
 
 /**

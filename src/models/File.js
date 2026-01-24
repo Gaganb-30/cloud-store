@@ -66,6 +66,11 @@ const fileSchema = new mongoose.Schema({
         default: 0,
         index: true,
     },
+    // Unique IPs that downloaded (for anti-abuse threshold)
+    uniqueDownloadIPs: {
+        type: [String],
+        default: [],
+    },
     lastDownloadAt: {
         type: Date,
     },
@@ -170,20 +175,53 @@ fileSchema.virtual('friendlySize').get(function () {
 });
 
 /**
- * Increment download count and extend expiry
+ * Increment download count and manage expiry
+ * After download threshold (from unique non-owner IPs), expiry is shortened
+ * @param {number} extensionDays - Days to extend expiry
+ * @param {number} downloadThreshold - Number of unique IP downloads before shortening
+ * @param {number} daysAfterThreshold - Days of expiry after threshold reached
+ * @param {string} downloaderIp - IP address of downloader
+ * @param {string} ownerId - Owner's user ID (to exclude self-downloads)
  */
-fileSchema.methods.incrementDownload = async function (extensionDays = 5) {
+fileSchema.methods.incrementDownload = async function (extensionDays = 5, downloadThreshold = 5, daysAfterThreshold = 1, downloaderIp = null, ownerId = null) {
     const now = new Date();
 
     this.downloads += 1;
     this.lastDownloadAt = now;
     this.lastAccessAt = now;
 
-    // Extend expiry if set
+    // Track unique download IP (if provided)
+    let isUniqueDownload = false;
+    const isOwnerDownload = ownerId && this.userId.toString() === ownerId.toString();
+
+    if (downloaderIp && !isOwnerDownload) {
+        // Check if this IP already downloaded
+        if (!this.uniqueDownloadIPs.includes(downloaderIp)) {
+            this.uniqueDownloadIPs.push(downloaderIp);
+            isUniqueDownload = true;
+        }
+    }
+
+    // Only apply expiry logic if file has an expiry (free users)
     if (this.expiresAt) {
-        const newExpiry = new Date(now.getTime() + extensionDays * 24 * 60 * 60 * 1000);
-        if (newExpiry > this.expiresAt) {
-            this.expiresAt = newExpiry;
+        // Use unique IP count for threshold (excludes owner and duplicate IPs)
+        const uniqueCount = this.uniqueDownloadIPs.length;
+
+        // Check if download threshold reached (unique non-owner IPs only)
+        if (uniqueCount >= downloadThreshold) {
+            // After threshold, set expiry to X days from now (shorter)
+            const thresholdExpiry = new Date(now.getTime() + daysAfterThreshold * 24 * 60 * 60 * 1000);
+
+            // Only shorten if current expiry is later
+            if (this.expiresAt > thresholdExpiry) {
+                this.expiresAt = thresholdExpiry;
+            }
+        } else {
+            // Normal extension logic (before threshold)
+            const newExpiry = new Date(now.getTime() + extensionDays * 24 * 60 * 60 * 1000);
+            if (newExpiry > this.expiresAt) {
+                this.expiresAt = newExpiry;
+            }
         }
     }
 
@@ -277,6 +315,26 @@ fileSchema.statics.findHotMigrationCandidates = function (downloadThreshold, lim
         migrationStatus: { $nin: ['pending', 'in_progress'] },
     })
         .sort({ downloads: -1 })
+        .limit(limit);
+};
+
+/**
+ * Static: Find inactive files (not downloaded for X days)
+ * Applies to ALL users including premium and admin
+ */
+fileSchema.statics.findInactiveFiles = function (inactivityDays, limit = 100) {
+    const cutoffDate = new Date(Date.now() - inactivityDays * 24 * 60 * 60 * 1000);
+
+    return this.find({
+        isDeleted: false,
+        $or: [
+            // Never downloaded and created before cutoff
+            { lastDownloadAt: null, createdAt: { $lte: cutoffDate } },
+            // Last download was before cutoff
+            { lastDownloadAt: { $lte: cutoffDate } },
+        ],
+    })
+        .sort({ lastDownloadAt: 1, createdAt: 1 })
         .limit(limit);
 };
 

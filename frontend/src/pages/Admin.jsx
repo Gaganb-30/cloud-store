@@ -2,6 +2,7 @@
  * Admin Page
  */
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import { motion } from 'framer-motion';
 import {
@@ -17,7 +18,8 @@ import {
     Ban,
     AlertTriangle,
     CheckCircle,
-    Trash2
+    Trash2,
+    Eye
 } from 'lucide-react';
 import { adminApi } from '../api/admin';
 import Button from '../components/ui/Button';
@@ -28,6 +30,7 @@ import { formatBytes, formatDate, getInitials, getAvatarColor } from '../utils/h
 import toast from 'react-hot-toast';
 
 export default function Admin() {
+    const navigate = useNavigate();
     const [stats, setStats] = useState(null);
     const [users, setUsers] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -38,6 +41,21 @@ export default function Admin() {
     const [modalOpen, setModalOpen] = useState(false);
     const [modalConfig, setModalConfig] = useState({ type: '', userId: null, userEmail: '' });
     const [actionLoading, setActionLoading] = useState(false);
+    const [premiumDuration, setPremiumDuration] = useState(null); // null = lifetime
+
+    // Premium duration options (in months)
+    const premiumDurations = [
+        { label: 'Lifetime', value: null },
+        { label: '1 Month', value: 1 },
+        { label: '3 Months', value: 3 },
+        { label: '6 Months', value: 6 },
+        { label: '1 Year', value: 12 },
+        { label: '3 Years', value: 36 },
+        { label: '5 Years', value: 60 },
+        { label: '10 Years', value: 120 },
+        { label: '20 Years', value: 240 },
+        { label: '50 Years', value: 600 },
+    ];
 
     // DMCA Bulk Delete state
     const [bulkDeleteLinks, setBulkDeleteLinks] = useState('');
@@ -64,6 +82,7 @@ export default function Admin() {
     };
 
     const openPromoteModal = (userId, userEmail) => {
+        setPremiumDuration(null); // Reset to lifetime
         setModalConfig({ type: 'promote', userId, userEmail });
         setModalOpen(true);
     };
@@ -93,8 +112,11 @@ export default function Admin() {
         try {
             switch (modalConfig.type) {
                 case 'promote':
-                    await adminApi.promoteUser(modalConfig.userId);
-                    toast.success('User promoted to premium');
+                    await adminApi.promoteUser(modalConfig.userId, premiumDuration);
+                    const durationText = premiumDuration
+                        ? premiumDurations.find(d => d.value === premiumDuration)?.label
+                        : 'Lifetime';
+                    toast.success(`User promoted to premium (${durationText})`);
                     break;
                 case 'demote':
                     await adminApi.demoteUser(modalConfig.userId);
@@ -342,11 +364,18 @@ export default function Admin() {
                                     {filteredUsers.map((user) => (
                                         <tr key={user._id} className="hover:bg-gray-50 dark:hover:bg-dark-700/50">
                                             <td className="px-4 py-3">
-                                                <div className="flex items-center gap-3">
-                                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium ${getAvatarColor(user.email)}`}>
+                                                <div
+                                                    className="flex items-center gap-3 cursor-pointer group"
+                                                    onClick={() => navigate(`/admin/view-user/${user._id}`)}
+                                                    title="View user's dashboard"
+                                                >
+                                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium ${getAvatarColor(user.email)} group-hover:ring-2 group-hover:ring-accent/50 transition-all`}>
                                                         {getInitials(user.email)}
                                                     </div>
-                                                    <span className="font-medium">{user.email}</span>
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="font-medium group-hover:text-accent transition-colors">{user.email}</span>
+                                                        <Eye className="w-4 h-4 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                                    </div>
                                                 </div>
                                             </td>
                                             <td className="px-4 py-3">
@@ -502,7 +531,27 @@ export default function Admin() {
                                 modalConfig.type === 'unblock' ? 'info' : 'danger'
                 }
                 loading={actionLoading}
-            />
+            >
+                {/* Premium Duration Selector */}
+                {modalConfig.type === 'promote' && (
+                    <div className="space-y-2">
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                            Premium Duration
+                        </label>
+                        <select
+                            value={premiumDuration === null ? '' : premiumDuration}
+                            onChange={(e) => setPremiumDuration(e.target.value === '' ? null : parseInt(e.target.value))}
+                            className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                        >
+                            {premiumDurations.map((option) => (
+                                <option key={option.label} value={option.value === null ? '' : option.value}>
+                                    {option.label}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                )}
+            </ConfirmModal>
         </>
     );
 }

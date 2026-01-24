@@ -45,9 +45,13 @@ function parseDuration(duration) {
 
 class AuthService {
     /**
-     * Register a new user
+     * Step 1: Initiate registration - validate and send OTP
      */
-    async register(email, username, password) {
+    async initiateRegistration(email, username, password) {
+        const { isDisposableEmail } = await import('../utils/emailBlocklist.js');
+        const { EmailVerification } = await import('../models/index.js');
+        const emailService = (await import('./EmailService.js')).default;
+
         // Validate input
         if (!email || !username || !password) {
             throw new ValidationError('Email, username, and password are required');
@@ -63,6 +67,118 @@ class AuthService {
 
         if (!/^[a-zA-Z0-9_-]+$/.test(username)) {
             throw new ValidationError('Username can only contain letters, numbers, underscores, and hyphens');
+        }
+
+        // Block disposable/temp emails
+        if (isDisposableEmail(email)) {
+            throw new ValidationError('Disposable email addresses are not allowed. Please use a permanent email.');
+        }
+
+        // Check for existing email
+        const existingEmail = await User.findByEmail(email);
+        if (existingEmail) {
+            throw new ConflictError('Email already registered');
+        }
+
+        // Check for existing username
+        const existingUsername = await User.findByUsername(username);
+        if (existingUsername) {
+            throw new ConflictError('Username already taken');
+        }
+
+        // Hash password for storage in pending verification
+        const bcrypt = await import('bcryptjs');
+        const hashedPassword = await bcrypt.default.hash(password, 12);
+
+        // Create verification and send OTP
+        const otp = await EmailVerification.createVerification(email, username, hashedPassword);
+
+        try {
+            await emailService.sendVerificationOTP(email, otp);
+            logger.info('Verification OTP sent', { email, username });
+        } catch (error) {
+            logger.error('Failed to send verification email', { email, error: error.message });
+            throw new Error('Failed to send verification email. Please try again.');
+        }
+
+        return {
+            message: 'Verification code sent to your email.',
+            email,
+        };
+    }
+
+    /**
+     * Step 2: Complete registration - verify OTP and create user
+     */
+    async completeRegistration(email, otp) {
+        const { EmailVerification } = await import('../models/index.js');
+
+        const result = await EmailVerification.verifyOTP(email, otp);
+
+        if (!result.valid) {
+            throw new ValidationError(result.error);
+        }
+
+        // Double-check email/username still available (race condition protection)
+        const existingEmail = await User.findByEmail(email);
+        if (existingEmail) {
+            throw new ConflictError('Email already registered');
+        }
+
+        const existingUsername = await User.findByUsername(result.pendingUser.username);
+        if (existingUsername) {
+            throw new ConflictError('Username already taken');
+        }
+
+        // Create user with pre-hashed password
+        const user = new User({
+            email,
+            username: result.pendingUser.username,
+            emailVerified: true,
+        });
+        user.password = result.pendingUser.password; // Already hashed
+        await user.save({ validateBeforeSave: false }); // Skip password hashing
+
+        // Clean up verification record
+        await EmailVerification.deleteMany({ email: email.toLowerCase() });
+
+        logger.info('User registered via email verification', { userId: user._id, email: user.email, username: user.username });
+
+        // Generate tokens
+        const tokens = await this.generateTokens(user);
+
+        return {
+            user: user.toJSON(),
+            ...tokens,
+        };
+    }
+
+    /**
+     * Legacy: Direct registration (for backwards compatibility, but blocks temp emails)
+     */
+    async register(email, username, password) {
+        const { isDisposableEmail } = await import('../utils/emailBlocklist.js');
+
+        // Validate input
+        if (!email || !username || !password) {
+            throw new ValidationError('Email, username, and password are required');
+        }
+
+        if (password.length < 8) {
+            throw new ValidationError('Password must be at least 8 characters');
+        }
+
+        if (username.length < 3 || username.length > 30) {
+            throw new ValidationError('Username must be 3-30 characters');
+        }
+
+        if (!/^[a-zA-Z0-9_-]+$/.test(username)) {
+            throw new ValidationError('Username can only contain letters, numbers, underscores, and hyphens');
+        }
+
+        // Block disposable/temp emails
+        if (isDisposableEmail(email)) {
+            throw new ValidationError('Disposable email addresses are not allowed. Please use a permanent email.');
         }
 
         // Check for existing email
@@ -440,6 +556,77 @@ class AuthService {
         logger.info('Email changed', { userId, oldEmail, newEmail: user.email });
 
         return { message: 'Email changed successfully', email: user.email };
+    }
+
+    /**
+     * Request password reset - sends OTP to email
+     */
+    async forgotPassword(email) {
+        const { PasswordReset } = await import('../models/index.js');
+        const emailService = (await import('./EmailService.js')).default;
+
+        const user = await User.findOne({ email: email.toLowerCase() });
+
+        // Always return success to prevent email enumeration
+        if (!user) {
+            logger.info('Password reset requested for non-existent email', { email });
+            return { message: 'If an account exists with this email, you will receive an OTP shortly.' };
+        }
+
+        // Generate and save OTP
+        const otp = await PasswordReset.createOTP(email);
+
+        // Send OTP email
+        try {
+            await emailService.sendPasswordResetOTP(email, otp);
+            logger.info('Password reset OTP sent', { email });
+        } catch (error) {
+            logger.error('Failed to send password reset email', { email, error: error.message });
+            throw new Error('Failed to send reset email. Please try again later.');
+        }
+
+        return { message: 'If an account exists with this email, you will receive an OTP shortly.' };
+    }
+
+    /**
+     * Verify OTP for password reset
+     */
+    async verifyResetOTP(email, otp) {
+        const { PasswordReset } = await import('../models/index.js');
+
+        const result = await PasswordReset.verifyOTP(email, otp);
+
+        if (!result.valid) {
+            throw new ValidationError(result.error);
+        }
+
+        logger.info('Password reset OTP verified', { email });
+        return { valid: true, message: 'OTP verified. You can now reset your password.' };
+    }
+
+    /**
+     * Reset password with verified OTP
+     */
+    async resetPassword(email, newPassword) {
+        const user = await User.findOne({ email: email.toLowerCase() });
+
+        if (!user) {
+            throw new ValidationError('Invalid request');
+        }
+
+        // Validate new password
+        if (!newPassword || newPassword.length < 8) {
+            throw new ValidationError('Password must be at least 8 characters');
+        }
+
+        // Update password
+        user.password = newPassword;
+        user.refreshTokens = []; // Logout from all devices
+        await user.save();
+
+        logger.info('Password reset successful', { userId: user._id, email });
+
+        return { message: 'Password reset successful. Please login with your new password.' };
     }
 }
 

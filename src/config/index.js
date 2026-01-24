@@ -36,6 +36,15 @@ function envInt(key, defaultValue = undefined) {
   return parsed;
 }
 
+function envFloat(key, defaultValue = undefined) {
+  const value = env(key, defaultValue?.toString());
+  const parsed = parseFloat(value);
+  if (isNaN(parsed)) {
+    throw new Error(`Environment variable ${key} must be a number`);
+  }
+  return parsed;
+}
+
 function envBool(key, defaultValue = false) {
   const value = env(key, defaultValue.toString());
   return value === 'true' || value === '1';
@@ -90,7 +99,17 @@ const config = {
     ssdPath: resolve(__dirname, '../../', env('STORAGE_SSD_PATH', './storage/ssd')),
     hddPath: resolve(__dirname, '../../', env('STORAGE_HDD_PATH', './storage/hdd')),
     tempPath: resolve(__dirname, '../../', env('STORAGE_TEMP_PATH', './storage/ssd/temp')),
-    provider: env('STORAGE_PROVIDER', 'local'),
+    provider: env('STORAGE_PROVIDER', 'local'), // 'local' or 'r2'
+  },
+
+  // Cloudflare R2 (S3-compatible object storage)
+  r2: {
+    accountId: env('R2_ACCOUNT_ID', ''),
+    accessKeyId: env('R2_ACCESS_KEY_ID', ''),
+    secretAccessKey: env('R2_SECRET_ACCESS_KEY', ''),
+    bucketName: env('R2_BUCKET_NAME', ''),
+    publicUrl: env('R2_PUBLIC_URL', ''), // Optional: for public bucket access
+    presignedExpiry: envInt('R2_PRESIGNED_EXPIRY', 86400), // 24 hours default
   },
 
   // Upload
@@ -123,8 +142,13 @@ const config = {
 
   // File Expiry
   expiry: {
-    daysFree: envInt('FILE_EXPIRY_DAYS_FREE', 5),
-    extensionDays: envInt('FILE_EXPIRY_EXTENSION_DAYS', 5),
+    daysFree: envFloat('FILE_EXPIRY_DAYS_FREE', 5),
+    extensionDays: envFloat('FILE_EXPIRY_EXTENSION_DAYS', 5),
+    // After X downloads, free user files expire faster
+    downloadThreshold: envInt('FILE_EXPIRY_DOWNLOAD_THRESHOLD', 5),
+    daysAfterThreshold: envFloat('FILE_EXPIRY_DAYS_AFTER_THRESHOLD', 1),
+    // Inactivity deletion (applies to ALL users including premium/admin)
+    inactivityDays: envFloat('FILE_INACTIVITY_DAYS', 90),
   },
 
   // Tier Migration
@@ -163,6 +187,16 @@ const config = {
   cors: {
     origin: env('CORS_ORIGIN', '*'),
     credentials: envBool('CORS_CREDENTIALS', true),
+  },
+
+  // Email (SMTP)
+  email: {
+    host: env('EMAIL_HOST', 'smtp.protonmail.ch'),
+    port: envInt('EMAIL_PORT', 587),
+    secure: envBool('EMAIL_SECURE', false),
+    user: env('EMAIL_USER', ''),
+    pass: env('EMAIL_PASS', ''),
+    fromName: env('EMAIL_FROM_NAME', 'CloudVault'),
   },
 };
 

@@ -2,6 +2,7 @@
  * Admin Controller
  */
 import adminService from '../services/AdminService.js';
+import expiryService from '../services/ExpiryService.js';
 
 export async function getUsers(req, res, next) {
     try {
@@ -20,7 +21,8 @@ export async function getUsers(req, res, next) {
 
 export async function promoteUser(req, res, next) {
     try {
-        const result = await adminService.promoteUser(req.params.userId);
+        const { durationMonths } = req.body; // Optional: null = lifetime
+        const result = await adminService.promoteUser(req.params.userId, durationMonths);
         res.json(result);
     } catch (error) {
         next(error);
@@ -115,6 +117,78 @@ export async function unblockUser(req, res, next) {
     try {
         const result = await adminService.unblockUser(req.params.userId);
         res.json(result);
+    } catch (error) {
+        next(error);
+    }
+}
+
+// ==================== View-as-User Feature ====================
+
+export async function getUserDashboard(req, res, next) {
+    try {
+        const result = await adminService.getUserDashboard(req.params.userId);
+        res.json(result);
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function getUserFolderContents(req, res, next) {
+    try {
+        const { page, limit, sort } = req.query;
+        const result = await adminService.getUserFolderContents(
+            req.params.userId,
+            req.params.folderId,
+            {
+                page: parseInt(page, 10) || 1,
+                limit: parseInt(limit, 10) || 50,
+                sort,
+            }
+        );
+        res.json(result);
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function getUserAnalytics(req, res, next) {
+    try {
+        const { period = '30' } = req.query;
+        const result = await adminService.getUserAnalytics(
+            req.params.userId,
+            parseInt(period, 10) || 30
+        );
+        res.json(result);
+    } catch (error) {
+        next(error);
+    }
+}
+
+// ==================== Cleanup Tools ====================
+
+/**
+ * Manually trigger cleanup (expiry + inactivity)
+ */
+export async function runCleanup(req, res, next) {
+    try {
+        const { limit = 100 } = req.query;
+        const batchSize = parseInt(limit, 10) || 100;
+
+        // Run expiry cleanup
+        const expiryResult = await expiryService.processExpiredBatch(batchSize);
+
+        // Run inactivity cleanup
+        const inactivityResult = await expiryService.processInactiveBatch(batchSize);
+
+        // Get stats
+        const stats = await expiryService.getStats();
+
+        res.json({
+            success: true,
+            expiry: expiryResult,
+            inactivity: inactivityResult,
+            stats,
+        });
     } catch (error) {
         next(error);
     }

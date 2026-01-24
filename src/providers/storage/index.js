@@ -5,8 +5,7 @@
 
 import config from '../../config/index.js';
 import { LocalStorageProvider } from './LocalStorageProvider.js';
-// Future: import { S3StorageProvider } from './S3StorageProvider.js';
-// Future: import { GCSStorageProvider } from './GCSStorageProvider.js';
+import { R2StorageProvider } from './R2StorageProvider.js';
 
 export { StorageTier } from './StorageProvider.js';
 
@@ -19,19 +18,23 @@ export function getStorageProvider() {
         case 'local':
             return new LocalStorageProvider();
 
-        // Future implementations:
-        // case 's3':
-        //   return new S3StorageProvider();
-        // case 'gcs':
-        //   return new GCSStorageProvider();
-        // case 'azure':
-        //   return new AzureBlobStorageProvider();
+        case 'r2':
+            return new R2StorageProvider();
 
         default:
             return new LocalStorageProvider();
     }
 }
 
-// Export default provider instance
-import localStorageProvider from './LocalStorageProvider.js';
-export default localStorageProvider;
+// Create and export default provider based on config
+let defaultProvider;
+
+if (config.storage.provider === 'r2') {
+    const { default: r2Provider } = await import('./R2StorageProvider.js');
+    defaultProvider = r2Provider;
+} else {
+    const { default: localProvider } = await import('./LocalStorageProvider.js');
+    defaultProvider = localProvider;
+}
+
+export default defaultProvider;

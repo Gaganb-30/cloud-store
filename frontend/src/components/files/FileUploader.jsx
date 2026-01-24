@@ -21,7 +21,7 @@ function formatEta(seconds) {
 export default function FileUploader({ targetFolderId = null }) {
     const [isDragging, setIsDragging] = useState(false);
     const { queue, addFile, removeFile, cancelUpload, startUpload, uploading, pendingCount } = useUpload();
-    const { user } = useAuth();
+    const { user, isPremium, quota } = useAuth();
 
     // Check if user is restricted
     const isRestricted = user?.status === 'restricted';
@@ -137,7 +137,7 @@ export default function FileUploader({ targetFolderId = null }) {
                                 {isDragging ? 'Drop files here' : 'Drag & drop files here'}
                             </p>
                             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                                or click to browse • Max 10GB per file
+                                or click to browse • {isPremium ? 'Unlimited file size' : 'Max 10GB per file'}
                             </p>
                         </div>
                     </div>

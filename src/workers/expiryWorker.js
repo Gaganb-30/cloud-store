@@ -42,12 +42,22 @@ class ExpiryWorker {
         try {
             logger.debug('Expiry worker running...');
 
-            const result = await expiryService.processExpiredBatch(
+            // Process expired files (free users)
+            const expiryResult = await expiryService.processExpiredBatch(
                 config.workers.batchSize
             );
 
-            if (result.processed > 0) {
-                logger.info('Expiry worker completed batch', result);
+            if (expiryResult.processed > 0) {
+                logger.info('Expiry worker completed expiry batch', expiryResult);
+            }
+
+            // Process inactive files (all users - 90 days no download)
+            const inactivityResult = await expiryService.processInactiveBatch(
+                config.workers.batchSize
+            );
+
+            if (inactivityResult.processed > 0) {
+                logger.info('Expiry worker completed inactivity batch', inactivityResult);
             }
         } catch (error) {
             logger.error('Expiry worker error', { error: error.message });

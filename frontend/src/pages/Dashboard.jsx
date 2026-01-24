@@ -21,16 +21,63 @@ export default function Dashboard() {
         refreshUser();
     }, []);
 
+    // Calculate premium time remaining
+    const getPremiumTimeRemaining = () => {
+        if (!isPremium || !user?.premiumExpiresAt) {
+            return null; // Lifetime or not premium
+        }
+
+        const now = new Date();
+        const expiresAt = new Date(user.premiumExpiresAt);
+        const diffMs = expiresAt - now;
+
+        if (diffMs <= 0) return 'Expired';
+
+        const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+        const months = Math.floor(days / 30);
+        const years = Math.floor(days / 365);
+
+        if (years > 0) {
+            return `${years}y ${Math.floor((days % 365) / 30)}m left`;
+        } else if (months > 0) {
+            return `${months}mo ${days % 30}d left`;
+        } else if (days > 0) {
+            return `${days} days left`;
+        } else {
+            const hours = Math.floor(diffMs / (1000 * 60 * 60));
+            return `${hours} hours left`;
+        }
+    };
+
+    const premiumTimeRemaining = getPremiumTimeRemaining();
+
     // Get storage from quota (from AuthContext) or fallback to 0
     const storageUsed = quota?.storage?.used || 0;
     const fileCount = quota?.files?.count || 0;
     const totalDownloads = quota?.downloads?.total || 0;
 
+    // Format account type with expiry info
+    const getAccountTypeDisplay = () => {
+        if (!isPremium) return { value: 'Free', subValue: null, subColor: null };
+        if (!premiumTimeRemaining) return { value: 'Premium', subValue: '∞ Lifetime', subColor: 'text-green-500' };
+        if (premiumTimeRemaining === 'Expired') return { value: 'Premium', subValue: 'Expired', subColor: 'text-red-500' };
+
+        // Check if less than 7 days
+        const now = new Date();
+        const expiresAt = new Date(user.premiumExpiresAt);
+        const daysLeft = Math.floor((expiresAt - now) / (1000 * 60 * 60 * 24));
+        const colorClass = daysLeft <= 7 ? 'text-amber-500' : 'text-green-500';
+
+        return { value: 'Premium', subValue: premiumTimeRemaining, subColor: colorClass };
+    };
+
+    const accountDisplay = getAccountTypeDisplay();
+
     const statCards = [
         { label: 'Storage Used', value: formatBytes(storageUsed), icon: HardDrive, color: 'text-blue-500' },
         { label: 'Total Files', value: fileCount, icon: Upload, color: 'text-green-500' },
         { label: 'Total Folders', value: quota?.folders?.count || 0, icon: Folder, color: 'text-amber-500' },
-        { label: 'Account Type', value: isPremium ? 'Premium' : 'Free', icon: Clock, color: 'text-accent' },
+        { label: 'Account Type', value: accountDisplay.value, subValue: accountDisplay.subValue, subColor: accountDisplay.subColor, icon: Clock, color: 'text-accent' },
     ];
 
     const handleUploadHere = (folderId) => {
@@ -71,9 +118,14 @@ export default function Dashboard() {
                                 <div className={`p-2 rounded-lg bg-gray-100 dark:bg-dark-700 ${stat.color}`}>
                                     <stat.icon className="w-5 h-5" />
                                 </div>
-                                <div>
+                                <div className="min-w-0 flex-1">
                                     <p className="text-sm text-gray-600 dark:text-gray-400">{stat.label}</p>
                                     <p className="text-xl font-semibold">{stat.value}</p>
+                                    {stat.subValue && (
+                                        <p className={`text-xs font-medium mt-0.5 ${stat.subColor || 'text-gray-500'}`}>
+                                            {stat.subValue}
+                                        </p>
+                                    )}
                                 </div>
                             </div>
                         </motion.div>

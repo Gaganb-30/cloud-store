@@ -66,7 +66,7 @@ class DownloadService {
      * Prepare download response
      */
     async prepareDownload(fileId, options = {}) {
-        const { userId, rangeHeader, password } = options;
+        const { userId, rangeHeader, password, downloaderIp } = options;
 
         // Get file metadata
         const metadata = await this.getFileMetadata(fileId);
@@ -82,7 +82,7 @@ class DownloadService {
 
         // Get file stream from storage
         const streamOptions = range ? { start: range.start, end: range.end } : {};
-        const stream = storageProvider.getStream(
+        const stream = await storageProvider.getStream(
             metadata.storageKey,
             metadata.storageTier,
             streamOptions
@@ -94,7 +94,7 @@ class DownloadService {
         // Only increment download counter for full downloads (not range requests)
         // Range requests are typically for streaming/seeking in video/audio
         if (!rangeHeader) {
-            this._incrementDownload(fileId).catch(err => {
+            this._incrementDownload(fileId, downloaderIp, metadata.userId).catch(err => {
                 logger.error('Failed to increment download counter', { fileId, error: err.message });
             });
         }
@@ -209,19 +209,30 @@ class DownloadService {
     }
 
     /**
-     * Increment download counter and extend expiry
+     * Increment download counter and manage expiry
+     * @param {string} fileId - File ID
+     * @param {string} downloaderIp - Downloader's IP address
+     * @param {string} ownerId - File owner's user ID
      */
-    async _incrementDownload(fileId) {
+    async _incrementDownload(fileId, downloaderIp = null, ownerId = null) {
         const file = await File.findById(fileId);
         if (file) {
-            await file.incrementDownload(config.expiry.extensionDays);
+            await file.incrementDownload(
+                config.expiry.extensionDays,
+                config.expiry.downloadThreshold,
+                config.expiry.daysAfterThreshold,
+                downloaderIp,
+                ownerId
+            );
 
             // Invalidate cache
             await cacheProvider.delete(`file:${fileId}`);
 
             logger.debug('Download counter incremented', {
                 fileId,
-                downloads: file.downloads + 1
+                downloads: file.downloads,
+                uniqueDownloads: file.uniqueDownloadIPs?.length || 0,
+                expiresAt: file.expiresAt
             });
         }
     }

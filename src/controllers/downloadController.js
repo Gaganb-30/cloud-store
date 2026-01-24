@@ -17,6 +17,7 @@ export async function downloadFile(req, res, next) {
                 userId: req.user?._id,
                 rangeHeader: req.headers.range,
                 password,
+                downloaderIp: req.logContext?.ip || req.ip,
             }
         );
 

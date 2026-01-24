@@ -4,6 +4,21 @@
 import client, { setTokens, clearTokens } from './client';
 
 export const authApi = {
+    // Step 1: Initiate registration - send verification OTP
+    async initiateRegister(email, username, password) {
+        const response = await client.post('/auth/initiate-register', { email, username, password });
+        return response.data;
+    },
+
+    // Step 2: Complete registration - verify OTP
+    async completeRegister(email, otp) {
+        const response = await client.post('/auth/complete-register', { email, otp });
+        const { accessToken, refreshToken, user } = response.data;
+        setTokens(accessToken, refreshToken);
+        return user;
+    },
+
+    // Legacy direct registration
     async register(email, username, password) {
         const response = await client.post('/auth/register', { email, username, password });
         const { accessToken, refreshToken, user } = response.data;
@@ -52,6 +67,22 @@ export const authApi = {
             newEmail,
             password,
         });
+        return response.data;
+    },
+
+    // Password Reset (Forgot Password)
+    async forgotPassword(email) {
+        const response = await client.post('/auth/forgot-password', { email });
+        return response.data;
+    },
+
+    async verifyOtp(email, otp) {
+        const response = await client.post('/auth/verify-otp', { email, otp });
+        return response.data;
+    },
+
+    async resetPassword(email, newPassword) {
+        const response = await client.post('/auth/reset-password', { email, newPassword });
         return response.data;
     },
 };

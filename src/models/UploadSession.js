@@ -87,6 +87,20 @@ const uploadSessionSchema = new mongoose.Schema({
     storageTier: {
         type: String,
     },
+    storageKey: {
+        type: String,
+    },
+    originalName: {
+        type: String,
+    },
+
+    // R2 multipart upload fields
+    r2UploadId: {
+        type: String,
+    },
+    r2Key: {
+        type: String,
+    },
 
     // Timestamps
     startedAt: {

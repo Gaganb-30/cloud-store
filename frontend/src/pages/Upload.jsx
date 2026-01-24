@@ -80,7 +80,7 @@ export default function Upload() {
                     <div className="mb-8">
                         <h1 className="text-2xl font-bold">Upload Files</h1>
                         <p className="text-gray-600 dark:text-gray-400 mt-1">
-                            Drag and drop files or click to browse. Files up to 10GB supported.
+                            Drag and drop files or click to browse. Files up to 10GB supported for Free users.
                         </p>
                     </div>
 
